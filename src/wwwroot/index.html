@@ -1,0 +1,318 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title></title>
+    <style>
+        table {
+            border: 0
+        }
+
+        .commslog-data {
+            font-family: Consolas, Courier New, Courier, monospace;
+        }
+
+        .commslog-server {
+            background-color: red;
+            color: white
+        }
+
+        .commslog-client {
+            background-color: green;
+            color: white
+        }
+    </style>
+</head>
+<body>
+    <h1>ASP.NET Core SignalR Sample Application</h1>
+    <p id="stateLabel">Ready to connect...</p>
+    <div>
+        <label for="connectionUrl">WebSocket Server URL:</label>
+        <input id="connectionUrl" />
+        <button id="connectButton" type="submit">Connect</button>
+        <span>&nbsp;&nbsp;&nbsp;<a href="/broadcast" target="_blank">Broadcast demo</a></span>
+    </div>
+    <p></p>
+    <div>
+        <label for="sendMessage">Message to send:</label>
+        <input id="sendMessage" disabled />
+        <button id="sendButton" type="submit" disabled>EchoWithJsonFormat()</button>
+        <button id="callReverseButton" type="submit" disabled>Reverse()</button>
+        <button id="closeButton" disabled>Close Socket</button>
+    </div>
+
+    <h2>Communication Log</h2>
+    <table style="width: 800px">
+        <thead>
+            <tr>
+                <td style="width: 100px">From</td>
+                <td style="width: 100px">To</td>
+                <td>Data</td>
+            </tr>
+        </thead>
+        <tbody id="commsLog"></tbody>
+    </table>
+
+    <script src="lib/signalr/signalr.js"></script>
+    <script>
+        var connectionForm = document.getElementById("connectionForm");
+        var connectionUrl = document.getElementById("connectionUrl");
+        var connectButton = document.getElementById("connectButton");
+        var stateLabel = document.getElementById("stateLabel");
+        var sendMessage = document.getElementById("sendMessage");
+        var sendButton = document.getElementById("sendButton");
+        var callReverseButton = document.getElementById("callReverseButton");
+        var closeButton = document.getElementById("closeButton");
+        var sendForm = document.getElementById("sendForm");
+        var commsLog = document.getElementById("commsLog");
+        //var socket;
+
+        var signalRstatus = "disconnected";
+
+        //var scheme = document.location.protocol == "https:" ? "wss" : "ws";
+        var port = document.location.port ? (":" + document.location.port) : "";
+
+        //connectionUrl.value = scheme + "://" + document.location.hostname + port + "/ws";
+        connectionUrl.value = document.location.protocol + "//" + document.location.hostname + port + "/ws";
+
+        function isEmpty(str) {
+            return (!str || 0 === str.length);
+        }
+
+        var signalRconn = null;
+
+        function InitSignalR(url) {
+            const conn = new signalR.HubConnectionBuilder().withUrl(url).configureLogging(signalR.LogLevel.Debug).build();
+
+            conn.on("OnBroadcast", (recv) => {
+                alert("recv=" + recv);
+            });
+
+            conn.onclose(err => {
+                signalRstatus = "disconnected";
+                if (err !== null && err !== undefined) {
+                    console.log("onclose has error=" + error.toString());
+                }
+                updateState();
+                commsLog.innerHTML += '<tr>' +
+                    '<td colspan="3" class="commslog-data">Connection closed</td></tr>';
+            });
+
+            return conn;
+        }
+
+        function updateState() {
+            function disable() {
+                sendMessage.disabled = true;
+                sendButton.disabled = true;
+                callReverseButton.disabled = true;
+                closeButton.disabled = true;
+            }
+            function enable() {
+                sendMessage.disabled = false;
+                sendButton.disabled = false;
+                callReverseButton.disabled = false;
+                closeButton.disabled = false;
+            }
+
+            connectionUrl.disabled = true;
+            connectButton.disabled = true;
+
+            switch (signalRstatus) {
+                case "disconnected":
+                    stateLabel.innerHTML = "Closed";
+                    disable();
+                    connectionUrl.disabled = false;
+                    connectButton.disabled = false;
+                    break;
+                case "closing":
+                    stateLabel.innerHTML = "Closing...";
+                    disable();
+                    break;
+                case "connecting":
+                    stateLabel.innerHTML = "Connecting...";
+                    disable();
+                    break;
+                case "connected":
+                    stateLabel.innerHTML = "Open";
+                    enable();
+                    break;
+            }
+
+            /*
+            if (!socket) {
+                disable();
+            } else {
+                switch (socket.readyState) {
+                    case WebSocket.CLOSED:
+                        stateLabel.innerHTML = "Closed";
+                        disable();
+                        connectionUrl.disabled = false;
+                        connectButton.disabled = false;
+                        break;
+                    case WebSocket.CLOSING:
+                        stateLabel.innerHTML = "Closing...";
+                        disable();
+                        break;
+                    case WebSocket.CONNECTING:
+                        stateLabel.innerHTML = "Connecting...";
+                        disable();
+                        break;
+                    case WebSocket.OPEN:
+                        stateLabel.innerHTML = "Open";
+                        enable();
+                        break;
+                    default:
+                        stateLabel.innerHTML = "Unknown WebSocket State: " + htmlEscape(socket.readyState);
+                        disable();
+                        break;
+                }
+            }
+            */
+
+        }
+
+        closeButton.onclick = function () {
+            signalRstatus = "closing";
+            updateState();
+            signalRconn.stop().then(() => {
+                signalRstatus = "disconnected";
+            }).catch(err => console.error(err.toString()));
+        };
+
+        /*
+        closeButton.onclick = function () {
+            if (!socket || socket.readyState != WebSocket.OPEN) {
+                alert("socket not connected");
+            }
+            socket.close(1000, "Closing from client");
+        };
+        */
+
+        sendButton.onclick = function () {
+            var data = sendMessage.value;
+            if (isEmpty(data)) {
+                return;
+            }
+
+            commsLog.innerHTML += '<tr>' +
+                '<td class="commslog-client">Client</td>' +
+                '<td class="commslog-server">Server</td>' +
+                '<td class="commslog-data">' +
+                htmlEscape(data) +
+                '</td></tr>';
+
+            signalRconn.invoke("EchoWithJsonFormat", data).then((recv) => {
+                commsLog.innerHTML += '<tr>' +
+                    '<td class="commslog-server">Server</td>' +
+                    '<td class="commslog-client">Client</td>' +
+                    '<td class="commslog-data">' + htmlEscape(recv) + '</td></tr>';
+            }).catch(err => console.error(err.toString()));
+        };
+
+        /*
+        sendButton.onclick = function() {
+            if (!socket || socket.readyState != WebSocket.OPEN) {
+                alert("socket not connected");
+            }
+            var data = sendMessage.value;
+            socket.send(data);
+            commsLog.innerHTML += '<tr>' +
+                '<td class="commslog-client">Client</td>' +
+                '<td class="commslog-server">Server</td>' +
+                '<td class="commslog-data">' +
+                htmlEscape(data) +
+                '</td>'
+            '</tr>';
+        };
+        */
+
+        callReverseButton.onclick = function () {
+            var data = sendMessage.value;
+            if (isEmpty(data)) {
+                return;
+            }
+
+            commsLog.innerHTML += '<tr>' +
+                '<td class="commslog-client">Client</td>' +
+                '<td class="commslog-server">Server</td>' +
+                '<td class="commslog-data">' +
+                htmlEscape(data) +
+                '</td></tr>';
+            var streamResult = signalRconn.stream("Reverse", data);
+            streamResult.subscribe({
+                next: (recv) => {
+                    commsLog.innerHTML += '<tr>' +
+                        '<td class="commslog-server">Server</td>' +
+                        '<td class="commslog-client">Client</td>' +
+                        '<td class="commslog-data">' + htmlEscape(recv) + '</td></tr>';
+                },
+                complete: () => {
+                    commsLog.innerHTML += '<tr>' +
+                        '<td colspan="3" class="commslog-data">Reverse() streaming completed.</td></tr>';
+                },
+                error: (err) => {
+                    console.error(err.toString());
+                }
+            });
+
+        };
+
+        connectButton.onclick = function () {
+            signalRstatus = "connecting";
+            stateLabel.innerHTML = "Connecting";
+            signalRconn = InitSignalR(connectionUrl.value);
+            signalRconn.start()
+                .then(() => {
+                    signalRstatus = "connected";
+                    updateState();
+                    commsLog.innerHTML += '<tr>' +
+                        '<td colspan="3" class="commslog-data">Connection opened</td>' +
+                        '</tr>';
+                })
+                .catch(err => {
+                    console.error(err.toString());
+                    signalRstatus = "disconnected";
+                    updateState();
+                });
+        };
+
+        /*
+        connectButton.onclick = function () {
+            stateLabel.innerHTML = "Connecting";
+
+            socket = new WebSocket(connectionUrl.value);
+            socket.onopen = function (event) {
+                updateState();
+                commsLog.innerHTML += '<tr>' +
+                    '<td colspan="3" class="commslog-data">Connection opened</td>' +
+                    '</tr>';
+            };
+            socket.onclose = function (event) {
+                updateState();
+                commsLog.innerHTML += '<tr>' +
+                    '<td colspan="3" class="commslog-data">Connection closed. Code: ' + htmlEscape(event.code) + '. Reason: ' + htmlEscape(event.reason) + '</td>' +
+                    '</tr>';
+            };
+            socket.onerror = updateState;
+            socket.onmessage = function (event) {
+                commsLog.innerHTML += '<tr>' +
+                    '<td class="commslog-server">Server</td>' +
+                    '<td class="commslog-client">Client</td>' +
+                    '<td class="commslog-data">' + htmlEscape(event.data) + '</td>'
+                '</tr>';
+            };
+        };
+        */
+
+        function htmlEscape(str) {
+            return str
+                .replace(/&/g, '&amp;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }
+    </script>
+</body>
+</html>
